@@ -162,3 +162,181 @@ void hashmap_destroy(HashMap *map)
         free(map);
     }
 }
+
+/* EXERCICE 2 */
+
+// Q 2.1
+
+Segment *create_seg(int start, int size, Segment *next)
+{
+    /* Fonction qui cree un Segment */
+    if (size <= 0)
+        return NULL; // segment vide
+    Segment *res = (Segment *)malloc(sizeof(Segment));
+    if (!res)
+        return NULL;
+    res->start = start;
+    res->size = size;
+    res->next = next;
+    return res;
+}
+
+MemoryHandler *memory_init(int size)
+{
+    /* Fonction permettant d’initialiser le gestionnaire de m´emoire */
+    MemoryHandler *memory = (MemoryHandler *)malloc(sizeof(MemoryHandler));
+    if (!memory)
+        return NULL;
+    // Le tableau de mémoire (pointeurs) est initialisé à NULL (non utilisé pour l’instant)
+    memory->memory = NULL;
+    memory->total_size = size;
+    memory->free_list = create_seg(0, size, NULL);
+    if (!memory->free_list)
+    {
+        free(memory);
+        return NULL;
+    }
+    memory->allocated = hashmap_create();
+    if (!memory->allocated)
+    {
+        free(memory->free_list);
+        free(memory);
+        return NULL;
+    }
+    return memory;
+}
+
+// Q 2.2
+
+Segment *find_free_segment(MemoryHandler *handler, int start, int size, Segment **prev)
+{
+    /* Fonction qui retourne un tel segment libre ou NULL s'il n y a pas */
+
+    if (handler == NULL || handler->free_list == NULL)
+        return NULL;
+
+    *prev = NULL;
+    Segment *courr = handler->free_list;
+    while (courr)
+    {
+        if (courr->start <= start && courr->start + courr->size >= start + size)
+            // On a trouvé un Segment libre
+            return courr;
+
+        *prev = courr;
+        courr = courr->next;
+    }
+    // Aucun segment trouvé → prev doit rester NULL
+    *prev = NULL;
+    return NULL;
+}
+
+// Q 2.3
+int create_segment(MemoryHandler *handler, const char *name, int start, int size)
+{
+    if (!handler || !handler->free_list || !name || size <= 0)
+        return 0;
+
+    Segment *prev = NULL;
+    Segment *seg_trouver = find_free_segment(handler, start, size, &prev);
+    if (!seg_trouver)
+        return 0;
+
+    Segment *new_seg = create_seg(start, size, NULL);
+    if (!new_seg)
+        return 0;
+
+    if (!hashmap_insert(handler->allocated, name, new_seg))
+    {
+        free(new_seg);
+        return 0;
+    }
+
+    int old_start = seg_trouver->start;
+    int old_end = seg_trouver->start + seg_trouver->size;
+    int new_end = start + size;
+
+    if (old_start == start && old_end == new_end)
+    {
+        // Cas 1 : segment entièrement pris
+        if (prev)
+            prev->next = seg_trouver->next;
+        else
+            handler->free_list = seg_trouver->next;
+
+        free(seg_trouver);
+    }
+    else if (old_start == start)
+    {
+        // Cas 2 : juste la debut du segment est pris
+        seg_trouver->start += size;
+        seg_trouver->size -= size;
+    }
+    else if (old_end == new_end)
+    {
+        // Cas 3 : que le fin du segment est prise
+        seg_trouver->size = start - old_start;
+    }
+    else
+    {
+        // Cas 4 : ons coupe au milieu
+        Segment *after = create_seg(new_end, old_end - new_end, seg_trouver->next);
+        seg_trouver->size = start - old_start;
+        seg_trouver->next = after;
+    }
+
+    return 1;
+}
+
+// Q 2.4
+
+int remove_segment(MemoryHandler *handler, const char *name)
+{
+    /* Fonction permettant de lib´erer un segment de m´emoire allou´e et de l’ajouter `a la liste des segments libres */
+    if (!handler || !name)
+        return 0;
+
+    // recuperer le segment
+    Segment *seg = hashmap_get(handler->allocated, name);
+    if (!seg)
+        return 0;
+
+    // supprimer le segment de la table de hachage
+    if (!hashmap_remove(handler->allocated, name))
+        return 0;
+
+    // inserer dans la liste des segments libres
+    Segment *curr = handler->free_list;
+    Segment *prev = NULL;
+
+    while (curr && curr->start < seg->start)
+    {
+        prev = curr;
+        curr = curr->next;
+    }
+
+    // inserer le segment a la bonne position
+    seg->next = curr;
+    if (prev)
+        prev->next = seg;
+    else
+        handler->free_list = seg;
+
+    // fusionner avec le segment suivant si adjacent
+    if (curr && seg->start + seg->size == curr->start)
+    {
+        seg->size += curr->size;
+        seg->next = curr->next;
+        free(curr);
+    }
+
+    // fusionner avec le segment precedent si adjacent
+    if (prev && prev->start + prev->size == seg->start)
+    {
+        prev->size += seg->size;
+        prev->next = seg->next;
+        free(seg);
+    }
+
+    return 1;
+}
