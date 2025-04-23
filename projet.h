@@ -2,7 +2,7 @@
 #define PROJET_H
 #define TABLE_SIZE 128
 #define TOMBSTONE ((void *)-1)
-
+typedef int BOOL;
 // struct de table de hachage
 
 typedef struct hashentry
@@ -45,5 +45,30 @@ MemoryHandler *memory_init(int size);
 Segment *find_free_segment(MemoryHandler *handler, int start, int size, Segment **prev);
 int create_segment(MemoryHandler *handler, const char *name, int start, int size);
 int remove_segment(MemoryHandler *handler, const char *name);
+
+/* EXERCICE 3 */
+typedef struct
+{
+    char *mnemonic;
+    char *operand1;
+    char *operand2;
+} Instruction;
+
+typedef struct
+{
+    Instruction **data_instructions; // Tableau d’instructions .DATA
+    int data_count;                  // Nombre d’instructions .DATA
+    Instruction **code_instructions; // Tableau d’instructions .CODE
+    int code_count;                  // Nombre d’instructions .CODE
+    HashMap *labels;                 // labels -> indices dans code_instructions
+    HashMap *memory_locations;       // noms de variables -> adresse memoire
+} ParserResult;
+Instruction *create_instruction(const char *mnemonic, const char *op1, const char *op2);
+Instruction *parse_data_instruction(const char *line, HashMap *memory_locations);
+Instruction *parse_code_instruction(const char *line, HashMap *labels, int code_count);
+ParserResult *parse(const char *filename);
+void print_parser_result(ParserResult *result);
+void free_instruction(Instruction *instruction);
+void free_parser_result(ParserResult *result);
 
 #endif
