@@ -3,7 +3,8 @@
 #define TABLE_SIZE 128
 #define TOMBSTONE ((void *)-1)
 typedef int BOOL;
-// struct de table de hachage
+
+/* ===================================================== EXERCICE 1 ===================================================== */
 
 typedef struct hashentry
 {
@@ -17,7 +18,6 @@ typedef struct hashmap
     HashEntry *table;
 } HashMap;
 
-/* EXERCICE 1 */
 unsigned long simple_hash(const char *str);
 HashMap *hashmap_create();
 int hashmap_insert(HashMap *map, const char *key, void *value);
@@ -25,7 +25,7 @@ void *hashmap_get(HashMap *map, const char *key);
 int hashmap_remove(HashMap *map, const char *key);
 void hashmap_destroy(HashMap *map);
 
-/* EXERCICE 2 */
+/* ===================================================== EXERCICE 2 ===================================================== */
 typedef struct segment
 {
     int start;            // Position de debut (adresse) du segment dans la memoire
@@ -45,8 +45,9 @@ MemoryHandler *memory_init(int size);
 Segment *find_free_segment(MemoryHandler *handler, int start, int size, Segment **prev);
 int create_segment(MemoryHandler *handler, const char *name, int start, int size);
 int remove_segment(MemoryHandler *handler, const char *name);
+void memory_handler_destroy(MemoryHandler *handler);
 
-/* EXERCICE 3 */
+/* ===================================================== EXERCICE 3 ===================================================== */
 typedef struct
 {
     char *mnemonic;
@@ -63,6 +64,7 @@ typedef struct
     HashMap *labels;                 // labels -> indices dans code_instructions
     HashMap *memory_locations;       // noms de variables -> adresse memoire
 } ParserResult;
+
 Instruction *create_instruction(const char *mnemonic, const char *op1, const char *op2);
 Instruction *parse_data_instruction(const char *line, HashMap *memory_locations);
 Instruction *parse_code_instruction(const char *line, HashMap *labels, int code_count);
@@ -71,4 +73,17 @@ void print_parser_result(ParserResult *result);
 void free_instruction(Instruction *instruction);
 void free_parser_result(ParserResult *result);
 
+/* ===================================================== EXERCICE 4 ===================================================== */
+typedef struct
+{
+    MemoryHandler *memory_handler; // Gestionnaire de memoire
+    HashMap *context;              // Registres (AX, BX, CX, DX)
+} CPU;
+
+CPU *cpu_init(int memory_size);
+void cpu_destroy(CPU *cpu);
+void *store(MemoryHandler *handler, const char *segment_name, int pos, void *data);
+void *load(MemoryHandler *handler, const char *segment_name, int pos);
+void allocate_variables(CPU *cpu, Instruction **data_instructions, int data_count);
+void print_data_segment(CPU *cpu);
 #endif

@@ -4,7 +4,7 @@
 #include <assert.h>
 #include "projet.h"
 
-/* EXERCICE 1 */
+/* ===================================================== EXERCICE 1 ===================================================== */
 
 // Q 1.1
 unsigned long simple_hash(const char *str)
@@ -156,6 +156,7 @@ void hashmap_destroy(HashMap *map)
                 if (map->table[i].key != NULL && map->table[i].key != TOMBSTONE)
                 {
                     free((map->table[i]).key);
+                    free(map->table[i].value); // ici on suppose que tous les valeurs sont allouées dynamiquement
                 }
             }
             free(map->table);
@@ -164,7 +165,7 @@ void hashmap_destroy(HashMap *map)
     }
 }
 
-/* EXERCICE 2 */
+/* ===================================================== EXERCICE 2 ===================================================== */
 
 // Q 2.1
 
@@ -342,10 +343,12 @@ int remove_segment(MemoryHandler *handler, const char *name)
     return 1;
 }
 
-/* EXERCICE 3 */
-Instruction *create_instruction(const char *mnemonic, const char *op1, const char *op2) {
+/* ===================================================== EXERCICE 3 ===================================================== */
+Instruction *create_instruction(const char *mnemonic, const char *op1, const char *op2)
+{
     Instruction *inst = malloc(sizeof(Instruction));
-    if (!inst) return NULL;
+    if (!inst)
+        return NULL;
     inst->mnemonic = strdup(mnemonic);
     inst->operand1 = strdup(op1);
     inst->operand2 = strdup(op2);
@@ -526,9 +529,11 @@ ParserResult *parse(const char *filename)
 // Q 3.4
 /* Les tests se trouvent dans le fichier test_ex3.c */
 // on va ajouter qlq fonction pour simplifier les tests
-void print_parser_result(ParserResult *result) {
+void print_parser_result(ParserResult *result)
+{
     printf("DATA (%d):\n", result->data_count);
-    for (int i = 0; i < result->data_count; ++i) {
+    for (int i = 0; i < result->data_count; ++i)
+    {
         printf("  %s %s %s\n",
                result->data_instructions[i]->mnemonic,
                result->data_instructions[i]->operand1,
@@ -536,14 +541,14 @@ void print_parser_result(ParserResult *result) {
     }
 
     printf("CODE (%d):\n", result->code_count);
-    for (int i = 0; i < result->code_count; ++i) {
+    for (int i = 0; i < result->code_count; ++i)
+    {
         printf("  %s %s %s\n",
                result->code_instructions[i]->mnemonic,
                result->code_instructions[i]->operand1,
                result->code_instructions[i]->operand2);
     }
 }
-
 
 // Q 3.5
 void free_instruction(Instruction *instruction)
@@ -564,7 +569,7 @@ void free_parser_result(ParserResult *result)
         // Libérer le tableau d'instructions
         for (int i = 0; i < result->data_count; i++)
             free_instruction(result->data_instructions[i]);
-        free(result->data_instructions); 
+        free(result->data_instructions);
 
         // Libérer le tableau d'instructions
         for (int i = 0; i < result->code_count; i++)
@@ -578,4 +583,225 @@ void free_parser_result(ParserResult *result)
     }
 
     // on a fait if avant pour eviter les problemes de free(NULL)
+}
+
+/* ===================================================== EXERCICE 4 ===================================================== */
+
+// Q 4.1
+
+CPU *cpu_init(int memory_size)
+{
+    /* Fonction permettant d’initialiser le processeur simulee */
+
+    if (memory_size <= 0)
+        // CPU de memoire vide
+        return NULL;
+
+    // Creation des membres avec test d'allocation
+    CPU *cpu = (CPU *)malloc(sizeof(CPU));
+    if (!cpu)
+        return NULL;
+
+    cpu->memory_handler = memory_init(memory_size);
+    if (!cpu->memory_handler)
+    {
+        free(cpu);
+        return NULL;
+    }
+    cpu->context = hashmap_create();
+    if (!cpu->context)
+    {
+        free(cpu->memory_handler);
+        free(cpu);
+        return NULL;
+    }
+
+    // Ajout des registres et initialisation à 0
+
+    const char *regs[] = {"AX", "BX", "CX", "DX"};
+    for (int i = 0; i < 4; i++)
+    {
+        int *val = malloc(sizeof(int));
+
+        // en cas d'erreur, on libère tout
+        if (!val)
+        {
+
+            for (int j = 0; j < i; j++)
+                free(hashmap_get(cpu->context, regs[j]));
+            hashmap_destroy(cpu->context);
+            free(cpu->memory_handler);
+            free(cpu);
+            return NULL;
+        }
+        *val = 0;
+        hashmap_insert(cpu->context, regs[i], val);
+    }
+
+    return cpu;
+}
+
+// Q 4.2
+void memory_handler_destroy(MemoryHandler *handler)
+{
+    if (handler)
+    {
+        // liberation de void **memory
+        for (int i = 0; i < handler->total_size; i++)
+            free(handler->memory[i]);
+        free(handler->memory);
+
+        // liberation de Segment *free_list
+        Segment *courr = handler->free_list;
+        while (courr)
+        {
+            Segment *next = courr->next;
+            free(courr);
+            courr = next;
+        }
+
+        // liberation de HashMap *allocated
+        hashmap_destroy(handler->allocated);
+
+        // liberation de handler
+        free(handler);
+    }
+}
+void cpu_destroy(CPU *cpu)
+{
+    /* Fonction permettant de liberer toutes les ressources allou´ees par le processeur simulee */
+    if (cpu)
+    {
+        memory_handler_destroy(cpu->memory_handler);
+        hashmap_destroy(cpu->context);
+        free(cpu);
+    }
+}
+
+// Q 4.3
+
+void *store(MemoryHandler *handler, const char *segment_name, int pos, void *data)
+{
+    /* Fonction permettant de stocker une donnee data à la position pos de segment name. */
+
+    if (!handler || !segment_name || pos < 0 || !data)
+        return NULL;
+
+    // On verifie si le segment est bien allouée alors il existe dans le table de hachage
+
+    Segment *segment = hashmap_get(handler->allocated, segment_name);
+    if (segment && segment->size > pos)
+    {
+        // le segment est allouee et pos ne depasse pas sa taille
+
+        // Liberation d'ancienne valeur si elle existe
+        if (handler->memory[segment->start + pos])
+            free(handler->memory[segment->start + pos]);
+
+        handler->memory[segment->start + pos] = data;
+        return handler->memory[segment->start + pos];
+    }
+    return NULL;
+}
+
+// Q 4.4
+void *load(MemoryHandler *handler, const char *segment_name, int pos)
+{
+    /* Fonction permettant de recuperer la donn´ee stock´ee `a la position pos de segment name. */
+    if (handler && segment_name && pos >= 0)
+    {
+        Segment *segment = hashmap_get(handler->allocated, segment_name);
+        if (segment && segment->size > pos)
+        {
+            return handler->memory[segment->start + pos];
+        }
+    }
+    return NULL;
+}
+
+// Q 4.5
+
+void allocate_variables(CPU *cpu, Instruction **data_instructions, int data_count)
+{
+    /* Fonction permettant d’allouer dynamiquement le segment de donn´ees en fonction des d´eclarations recuperees par le parser. */
+    if (!cpu || !cpu->memory_handler || !data_instructions || data_count <= 0)
+        return;
+
+    int taille_totale = 0;
+
+    // 1 calcul de la taille totale à allouer
+    for (int i = 0; i < data_count; i++)
+    {
+        if (!data_instructions[i] || !data_instructions[i]->operand2)
+            continue;
+
+        int nb_valeurs = 1;
+        for (char *p = data_instructions[i]->operand2; *p; p++)
+        {
+            if (*p == ',')
+                nb_valeurs++;
+        }
+
+        taille_totale += nb_valeurs;
+    }
+
+    // 2 creation du segment DS
+    create_segment(cpu->memory_handler, "DS", 0, taille_totale);
+
+    // 3 Remplir la mémoire avec les valeurs
+    int index = 0;
+    for (int i = 0; i < data_count; i++)
+    {
+        if (!data_instructions[i] || !data_instructions[i]->operand2)
+            continue;
+
+        char *valeurs = strdup(data_instructions[i]->operand2);
+        char *token = strtok(valeurs, ","); // pour prendre les valeurs separe par des virgules
+
+        // NOTE ON SUPPOSE QUE LES VALEURS SONT PAS SEPARE PAR DES ESPACES
+
+        while (token)
+        {
+            int *val = malloc(sizeof(int));
+            *val = atoi(token);
+            store(cpu->memory_handler, "DS", index, val);
+
+            index++;
+            token = strtok(NULL, ",");
+        }
+
+        free(valeurs);
+    }
+}
+
+// Q 4.6
+
+void print_data_segment(CPU *cpu)
+{
+    /* Fonction permettant d’afficher le contenu du segment de donnees */
+    if (!cpu || !cpu->memory_handler)
+    {
+        printf("CPU non initialisé\n");
+        return;
+    }
+
+    Segment *ds = hashmap_get(cpu->memory_handler->allocated, "DS");
+    if (!ds)
+    {
+        printf("Segment de données 'DS' introuvable.\n");
+        return;
+    }
+
+    printf("Contenu du segment de données 'DS' :\n");
+
+    for (int i = 0; i < ds->size; i++)
+    {
+        int addr = ds->start + i;
+        void *ptr = cpu->memory_handler->memory[addr];
+
+        if (ptr)
+            printf("  [Adresse %d] = %d\n", addr, *(int *)ptr);
+        else
+            printf("  [Adresse %d] = vide\n", addr);
+    }
 }
