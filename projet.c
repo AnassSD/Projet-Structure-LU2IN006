@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <regex.h>
 #include "projet.h"
 
 /* ===================================================== EXERCICE 1 ===================================================== */
@@ -638,6 +639,20 @@ CPU *cpu_init(int memory_size)
         hashmap_insert(cpu->context, regs[i], val);
     }
 
+    // Q 5.1 Modification apres l'ajout de pool
+
+    cpu->constant_pool = hashmap_create();
+    // en cas d'erruer de malloc
+    if (!cpu->constant_pool)
+    {
+        for (int i = 0; i < 4; i++)
+            free(hashmap_get(cpu->context, regs[i]));
+        hashmap_destroy(cpu->context);
+        free(cpu->memory_handler);
+        free(cpu);
+        return NULL;
+    }
+
     return cpu;
 }
 
@@ -674,6 +689,8 @@ void cpu_destroy(CPU *cpu)
     {
         memory_handler_destroy(cpu->memory_handler);
         hashmap_destroy(cpu->context);
+        // Q 5.1 modification
+        hashmap_destroy(cpu->constant_pool); // Q 5.1
         free(cpu);
     }
 }
@@ -792,7 +809,7 @@ void print_data_segment(CPU *cpu)
         return;
     }
 
-    printf("Contenu du segment de données 'DS' :\n");
+    printf("Contenu du DS\n");
 
     for (int i = 0; i < ds->size; i++)
     {
@@ -804,4 +821,155 @@ void print_data_segment(CPU *cpu)
         else
             printf("  [Adresse %d] = vide\n", addr);
     }
+}
+
+/* ===================================================== EXERCICE 5 ===================================================== */
+
+int matches(const char *pattern, const char *string)
+{
+    regex_t regex;
+    int result = regcomp(&regex, pattern, REG_EXTENDED);
+    if (result)
+    {
+        fprintf(stderr, "Regex compilation failed for pattern: %s\n", pattern);
+        return 0;
+    }
+    result = regexec(&regex, string, 0, NULL, 0);
+    regfree(&regex);
+    return result == 0;
+}
+
+// Q 5.2
+
+void *immediate_addressing(CPU *cpu, const char *operand)
+{
+    /* Fonction permettant de traiter l’adressage immediat */
+    if (!cpu || !operand)
+        return NULL;
+
+    // si l’operande correspond `a ce mode d’adressage
+    if (matches("^[0-9]+$", operand))
+    {
+        void *elem = hashmap_get(cpu->constant_pool, operand);
+        if (!elem)
+        {
+            int *value = malloc(sizeof(int));
+            // erreur de malloc
+            if (!value)
+                return NULL;
+
+            *value = atoi(operand);
+            hashmap_insert(cpu->constant_pool, strdup(operand), value);
+            return value;
+        }
+        return elem;
+    }
+    return NULL;
+}
+
+// Q 5.3
+void *register_addressing(CPU *cpu, const char *operand)
+{
+    /* Fonction permettant de trainter l'adressage oar registre */
+    if (!cpu || !operand)
+        return NULL;
+
+    // si l’op´erande fourni correspond au format d’un nom de registre
+    if (matches("^(AX|BX|CX|DX)$", operand))
+        return hashmap_get(cpu->context, operand);
+
+    return NULL;
+}
+
+// Q 5.4
+void *memory_direct_addressing(CPU *cpu, const char *operand)
+{
+    /* Fonction permettant de traiter l’adressage direct par memoire */
+
+    if (matches("^\\[[0-9]+\\]$", operand))
+    {
+        int pos = 0;
+        if (sscanf(operand, "[%d]", &pos) != 1)
+            return NULL;
+
+        return load(cpu->memory_handler, "DS", pos);
+    }
+    return NULL;
+}
+
+// Q 5.5
+
+void *register_indirect_addressing(CPU *cpu, const char *operand)
+{
+    /* Fonction permettant de traiter l’adressage indirect par registre */
+
+    if (!cpu || !operand)
+        return NULL;
+
+    if (matches("^\\[(AX|BX|CX|DX)\\]$", operand))
+    {
+        char registre[4]; // 2 chars + il y a '\0' et un en plus pour eviter le risque
+        if (sscanf(operand, "[%2s]", registre) != 1)
+            return NULL;
+        int *reg_value = (int *)hashmap_get(cpu->context, registre);
+        // en cas d'erreur, ou le valeur de cette registre n'existe pas
+        if (!reg_value)
+            return NULL;
+
+        int addr = *reg_value;
+        return load(cpu->memory_handler, "DS", addr);
+    }
+    return NULL;
+}
+
+// Q 5.6
+void handle_MOV(CPU *cpu, void *src, void *dest)
+{
+    /* Fonction permettant de simuler le comportement de l’instruction MOV en pseudo-assembleur */
+    if (!cpu || !src || !dest)
+        return;
+    *(int *)dest = *(int *)src;
+    // on a fait des cast car ils sont en void *, et *(int *) pour avoir le valeur de l'entier
+    // ici on a pas fait des copie avec des malloc car c'est juste des int
+    return;
+}
+
+// Q 5.7
+/* Voir test_ex5.c */
+
+// Q 5.8
+void *resolve_addressing(CPU *cpu, const char *operand)
+{
+    /* Fonction permettant d’identifier automatiquement le mode d’adressage d’un op´erande et de r´esoudre sa valeur */
+    if (!cpu || !operand)
+        return NULL;
+
+    void *res;
+
+    res = immediate_addressing(cpu, operand);
+    if (res)
+    {
+        printf("Adressage immediat\n");
+        return res;
+    }
+    res = register_addressing(cpu, operand);
+    if (res)
+    {
+        printf("Adressage par registre\n");
+        return res;
+    }
+    res = memory_direct_addressing(cpu, operand);
+    if (res)
+    {
+        printf("Adressage direct\n");
+        return res;
+    }
+    res = register_indirect_addressing(cpu, operand);
+    if (res)
+    {
+        printf("Adressage indirect par registre\n");
+        return res;
+    }
+    printf("Mode inconnue\n");
+    return NULL;
 }
