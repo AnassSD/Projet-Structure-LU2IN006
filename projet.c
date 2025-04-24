@@ -973,3 +973,4 @@ void *resolve_addressing(CPU *cpu, const char *operand)
     printf("Mode inconnue\n");
     return NULL;
 }
+// ex 8
