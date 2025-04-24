@@ -345,16 +345,17 @@ int remove_segment(MemoryHandler *handler, const char *name)
 }
 
 /* ===================================================== EXERCICE 3 ===================================================== */
+
 Instruction *create_instruction(const char *mnemonic, const char *op1, const char *op2)
 {
+    /* Fonction qui cree une instruction */
     Instruction *inst = malloc(sizeof(Instruction));
-    if (!inst)
-        return NULL;
     inst->mnemonic = strdup(mnemonic);
-    inst->operand1 = strdup(op1);
-    inst->operand2 = strdup(op2);
+    inst->operand1 = op1 ? strdup(op1) : NULL;
+    inst->operand2 = op2 ? strdup(op2) : NULL;
     return inst;
 }
+
 // Q 3.1
 Instruction *parse_data_instruction(const char *line, HashMap *memory_locations)
 {
@@ -619,8 +620,8 @@ CPU *cpu_init(int memory_size)
 
     // Ajout des registres et initialisation à 0
 
-    const char *regs[] = {"AX", "BX", "CX", "DX"};
-    for (int i = 0; i < 4; i++)
+    const char *regs[] = {"AX", "BX", "CX", "DX", "IP", "ZF", "SF"}; // modification 6.2
+    for (int i = 0; i < 7; i++)                                      // modification 6.2
     {
         int *val = malloc(sizeof(int));
 
@@ -645,7 +646,7 @@ CPU *cpu_init(int memory_size)
     // en cas d'erruer de malloc
     if (!cpu->constant_pool)
     {
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < 7; i++) // modification 6.2
             free(hashmap_get(cpu->context, regs[i]));
         hashmap_destroy(cpu->context);
         free(cpu->memory_handler);
@@ -949,28 +950,337 @@ void *resolve_addressing(CPU *cpu, const char *operand)
     res = immediate_addressing(cpu, operand);
     if (res)
     {
-        printf("Adressage immediat\n");
+
         return res;
     }
     res = register_addressing(cpu, operand);
     if (res)
     {
-        printf("Adressage par registre\n");
+        // printf("Adressage par registre\n");
         return res;
     }
     res = memory_direct_addressing(cpu, operand);
     if (res)
     {
-        printf("Adressage direct\n");
+        /// printf("Adressage direct\n");
         return res;
     }
     res = register_indirect_addressing(cpu, operand);
     if (res)
     {
-        printf("Adressage indirect par registre\n");
+        // printf("Adressage indirect par registre\n");
         return res;
     }
-    printf("Mode inconnue\n");
+    // printf("Mode inconnue\n");
     return NULL;
 }
-// ex 8
+
+/* ===================================================== EXERCICE 6 ===================================================== */
+
+char *trim(char *str)
+{
+    while (*str == ' ' || *str == '\t' || *str == '\n' || *str == '\r')
+        str++;
+
+    char *end = str + strlen(str) - 1;
+    while (end > str && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r'))
+    {
+        *end = '\0';
+        end--;
+    }
+    return str;
+}
+
+int search_and_replace(char **str, HashMap *values)
+{
+    int replaced = 0;
+    char *input = *str;
+
+    // Iterate through ALL keys in the hashmap
+    for (int i = 0; i < values->size; i++)
+    {
+        if (values->table[i].key != NULL && values->table[i].key != (void *)-1)
+        {
+            char *key = values->table[i].key;
+            int value = (int)(long)values->table[i].value;
+
+            // Find potential substring match
+            char *substr = strstr(input, key);
+            if (substr)
+            {
+                // Construct replacement buffer
+                char replacement[64];
+                snprintf(replacement, sizeof(replacement), "[%d]", value);
+
+                // Calculate lengths
+                int key_len = strlen(key);
+                int repl_len = strlen(replacement);
+                // int remain_len = strlen(substr + key_len);
+
+                // Create new string
+                char *new_str = (char *)malloc(strlen(input) - key_len + repl_len + 1);
+                strncpy(new_str, input, substr - input);
+                new_str[substr - input] = '\0';
+                strcat(new_str, replacement);
+                strcat(new_str, substr + key_len);
+
+                // Free and update original string
+                free(input);
+                *str = new_str;
+                input = new_str;
+
+                replaced = 1;
+            }
+        }
+    }
+
+    // Trim the final string
+    if (replaced)
+    {
+        char *trimmed = trim(input);
+        if (trimmed != input)
+        {
+            memmove(input, trimmed, strlen(trimmed) + 1);
+        }
+    }
+
+    return replaced;
+}
+
+// Q 6.1
+
+int resolve_constants(ParserResult *result)
+{
+    /* Fonction qui remplace les variables par leur adresse dans le segment de donn´ees et les ´etiquettes par leur adresse dans le code.
+        et retourne le nombre des remplacements */
+
+    if (!result || !result->code_instructions)
+        return -1;
+
+    int nb_remplacement = 0;
+    for (int i = 0; i < result->code_count; i++)
+    {
+        Instruction *code_instruct = result->code_instructions[i];
+
+        if (code_instruct->operand1)
+            nb_remplacement += search_and_replace(&code_instruct->operand1, result->memory_locations) + search_and_replace(&code_instruct->operand1, result->labels);
+        if (code_instruct->operand2)
+            nb_remplacement += search_and_replace(&code_instruct->operand2, result->memory_locations) + search_and_replace(&code_instruct->operand2, result->labels);
+    }
+    return nb_remplacement;
+}
+
+// Q 6.2
+
+// Q 6.3
+
+void allocate_code_segment(CPU *cpu, Instruction **code_instructions, int code_count)
+{
+    /* Fonction qui alloue et initialise le segment de code (CS). */
+
+    if (!cpu || !cpu->memory_handler || !code_instructions || code_count <= 0)
+        return;
+
+    // creation de segment CS
+    if (!create_segment(cpu->memory_handler, "CS", 0, code_count))
+        return;
+
+    // stock les instructions dans le segment
+    for (int i = 0; i < code_count; i++)
+    {
+        store(cpu->memory_handler, "CS", i, code_instructions[i]);
+    }
+
+    // init IP à 0
+    int *ip = hashmap_get(cpu->context, "IP");
+    if (ip)
+        *ip = 0;
+}
+
+// Q 6.4
+
+int handle_instruction(CPU *cpu, Instruction *instr, void *src, void *dest)
+{
+    /* Fonction qui g´en´eralise la fonction handle MOV en permettant d’ex´ecuter une instruction
+        dans le CPU en fonction de son mn´emonique. */
+
+    if (!cpu || !instr || !instr->mnemonic)
+        return 0;
+
+    const char *mnemonic = instr->mnemonic;
+
+    int *zf = hashmap_get(cpu->context, "ZF");
+    int *sf = hashmap_get(cpu->context, "SF");
+    int *ip = hashmap_get(cpu->context, "IP");
+
+    // NOTE: On fait des cast avant car c'est void *
+
+    // MOV
+    if (strcmp(mnemonic, "MOV") == 0 && src && dest)
+    {
+        *(int *)dest = *(int *)src; // int pas besoin de malloc
+    }
+    // ADD
+    else if (strcmp(mnemonic, "ADD") == 0 && src && dest)
+    {
+        *(int *)dest += *(int *)src;
+    }
+    // CMP
+    else if (strcmp(mnemonic, "CMP") == 0 && src && dest)
+    {
+        int result = *(int *)dest - *(int *)src;
+
+        if (result == 0)
+            *zf = 1;
+        else
+            *zf = 0;
+
+        if (result < 0)
+            *sf = 1;
+        else
+            *sf = 0;
+    }
+
+    // JMP
+    else if (strcmp(mnemonic, "JMP") == 0 && dest)
+    {
+        *ip = *(int *)dest - 1;
+    }
+
+    // JZ
+    else if (strcmp(mnemonic, "JZ") == 0 && dest)
+    {
+        if (*zf == 1)
+            *ip = *(int *)dest - 1;
+    }
+
+    // JNZ
+    else if (strcmp(mnemonic, "JNZ") == 0 && dest)
+    {
+        if (*zf == 0)
+            *ip = *(int *)dest - 1;
+    }
+
+    else
+    {
+        return 0; // mnemonic non reconnue
+    }
+
+    return 1;
+}
+
+// Q 6.5
+
+int execute_instruction(CPU *cpu, Instruction *instr)
+{
+    /* Fonction  qui permet de r´esoudre les adresses des op´erandes en fonction du type d’adressage, puis d´el`egue l’ex´ecution
+    proprement dite `a la fonction handle instruction.*/
+
+    if (!cpu || !instr)
+        return 0;
+
+    void *dest = NULL;
+    void *src = NULL;
+
+    // resolve les adresse (deja fait)
+    if (instr->operand1)
+        dest = resolve_addressing(cpu, instr->operand1);
+
+    if (instr->operand2)
+        src = resolve_addressing(cpu, instr->operand2);
+
+    return handle_instruction(cpu, instr, src, dest);
+}
+
+// Q 6.6
+Instruction *fetch_next_instruction(CPU *cpu)
+{
+    /* Fonction qui recupere l’instruction suivante dans le segment de codes et incremente le pointeur d’instruction (IP) */
+    if (!cpu)
+        return NULL;
+
+    int *ip = hashmap_get(cpu->context, "IP");
+    if (!ip)
+        return NULL;
+
+    Segment *cs = hashmap_get(cpu->memory_handler->allocated, "CS");
+    if (!cs)
+        return NULL;
+
+    if (*ip < 0 || *ip >= cs->size)
+        // IP est pas dans les limites valides
+        return NULL;
+
+    // charger l'instruction
+    Instruction *instr = (Instruction *)load(cpu->memory_handler, "CS", *ip);
+
+    // incrementer registre IP
+    (*ip)++;
+
+    return instr;
+}
+
+// Q 6.7
+
+int run_program(CPU *cpu)
+{
+    if (!cpu)
+        return 0;
+
+    int *ip = hashmap_get(cpu->context, "IP");
+    if (!ip)
+        return 0;
+
+    printf("=== État initial du CPU ===\n");
+    print_data_segment(cpu); // Affiche le segment .DATA
+    printf("Registres :\n");
+    printf("AX = %d\n", *(int *)hashmap_get(cpu->context, "AX"));
+    printf("BX = %d\n", *(int *)hashmap_get(cpu->context, "BX"));
+    printf("CX = %d\n", *(int *)hashmap_get(cpu->context, "CX"));
+    printf("DX = %d\n", *(int *)hashmap_get(cpu->context, "DX"));
+    printf("IP = %d\n", *ip);
+    printf("ZF = %d\n", *(int *)hashmap_get(cpu->context, "ZF"));
+    printf("SF = %d\n", *(int *)hashmap_get(cpu->context, "SF"));
+
+    printf("\n--- Exécution en mode pas à pas ---\n");
+    printf("Appuie sur 'Enter' pour exécuter l’instruction suivante, 'q' pour quitter\n\n");
+
+    char input[10];
+    while (1)
+    {
+        Instruction *instr = fetch_next_instruction(cpu);
+        if (!instr || !instr->mnemonic)
+        {
+            printf("Fin du programme ou instruction invalide.\n");
+            break;
+        }
+
+        printf("Instruction : %s %s %s\n",
+               instr->mnemonic,
+               instr->operand1 ? instr->operand1 : "",
+               instr->operand2 ? instr->operand2 : "");
+
+        printf(" -> Entrée pour continuer, 'q' pour quitter > ");
+        fgets(input, sizeof(input), stdin);
+        if (input[0] == 'q')
+        {
+            printf("Exécution interrompue par l’utilisateur.\n");
+            break;
+        }
+
+        execute_instruction(cpu, instr);
+    }
+
+    printf("\n=== État final du CPU ===\n");
+    print_data_segment(cpu); // Affiche le segment .DATA à la fin
+    printf("Registres :\n");
+    printf("AX = %d\n", *(int *)hashmap_get(cpu->context, "AX"));
+    printf("BX = %d\n", *(int *)hashmap_get(cpu->context, "BX"));
+    printf("CX = %d\n", *(int *)hashmap_get(cpu->context, "CX"));
+    printf("DX = %d\n", *(int *)hashmap_get(cpu->context, "DX"));
+    printf("IP = %d\n", *(int *)hashmap_get(cpu->context, "IP"));
+    printf("ZF = %d\n", *(int *)hashmap_get(cpu->context, "ZF"));
+    printf("SF = %d\n", *(int *)hashmap_get(cpu->context, "SF"));
+
+    return 1;
+}
