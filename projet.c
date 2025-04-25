@@ -455,6 +455,7 @@ ParserResult *parse(const char *filename)
     mani`ere appropri´ee.  */
 
     // on ouvre le fichier en read mode
+
     FILE *pf = fopen(filename, "r");
     if (!pf)
     {
@@ -489,22 +490,27 @@ ParserResult *parse(const char *filename)
     // Lecture du fichier ligne par ligne
     while (fgets(line, sizeof(line), pf))
     {
-        // Détection des sections
-        if (strcmp(line, ".DATA\n") == 0)
+        char *clean = trim(line); // 🔥 remove leading/trailing whitespace
+
+        if (strcmp(clean, "") == 0)
+            continue; // skip empty lines
+
+        if (strcmp(clean, ".DATA") == 0)
         {
             dansData = 1;
             dansCode = 0;
             continue;
         }
-        else if (strcmp(line, ".CODE\n") == 0)
+        else if (strcmp(clean, ".CODE") == 0)
         {
             dansData = 0;
             dansCode = 1;
             continue;
         }
+
         if (dansData)
         {
-            Instruction *instr = parse_data_instruction(line, resultat->memory_locations);
+            Instruction *instr = parse_data_instruction(clean, resultat->memory_locations);
             if (instr)
             {
                 resultat->data_count++;
@@ -514,7 +520,7 @@ ParserResult *parse(const char *filename)
         }
         else if (dansCode)
         {
-            Instruction *instr = parse_code_instruction(line, resultat->labels, resultat->code_count);
+            Instruction *instr = parse_code_instruction(clean, resultat->labels, resultat->code_count);
             if (instr)
             {
                 resultat->code_count++;
@@ -1066,6 +1072,12 @@ int resolve_constants(ParserResult *result)
             nb_remplacement += search_and_replace(&code_instruct->operand1, result->memory_locations) + search_and_replace(&code_instruct->operand1, result->labels);
         if (code_instruct->operand2)
             nb_remplacement += search_and_replace(&code_instruct->operand2, result->memory_locations) + search_and_replace(&code_instruct->operand2, result->labels);
+
+        // j'ai ajouté c'est pour le debugging
+        printf("Instruction après remplacement: %s %s %s\n",
+               code_instruct->mnemonic,
+               code_instruct->operand1 ? code_instruct->operand1 : "",
+               code_instruct->operand2 ? code_instruct->operand2 : "");
     }
     return nb_remplacement;
 }
@@ -1089,6 +1101,11 @@ void allocate_code_segment(CPU *cpu, Instruction **code_instructions, int code_c
     for (int i = 0; i < code_count; i++)
     {
         store(cpu->memory_handler, "CS", i, code_instructions[i]);
+        // debugging print
+        printf("Instruction stockée [%d] : %s %s %s\n", i,
+               code_instructions[i]->mnemonic,
+               code_instructions[i]->operand1 ? code_instructions[i]->operand1 : "",
+               code_instructions[i]->operand2 ? code_instructions[i]->operand2 : "");
     }
 
     // init IP à 0
@@ -1217,6 +1234,15 @@ Instruction *fetch_next_instruction(CPU *cpu)
     // incrementer registre IP
     (*ip)++;
 
+    // debugg print
+
+    printf("Instruction récupérée (IP=%d): %s %s %s\n", *ip - 1,
+           instr ? instr->mnemonic : "NULL",
+           instr && instr->operand1 ? instr->operand1 : "",
+           instr && instr->operand2 ? instr->operand2 : "");
+    if (!instr)
+        printf("Instruction NULL à IP=%d\n", *ip);
+
     return instr;
 }
 
@@ -1233,6 +1259,7 @@ int run_program(CPU *cpu)
 
     printf("=== État initial du CPU ===\n");
     print_data_segment(cpu); // Affiche le segment .DATA
+    // Affiche les registres
     printf("Registres :\n");
     printf("AX = %d\n", *(int *)hashmap_get(cpu->context, "AX"));
     printf("BX = %d\n", *(int *)hashmap_get(cpu->context, "BX"));

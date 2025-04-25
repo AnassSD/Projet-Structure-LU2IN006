@@ -1,0 +1,12 @@
+.DATA
+a DW 5
+b DB 10, 20
+.CODE
+MOV AX, a
+ADD AX, b
+CMP AX, 15
+JZ ok
+MOV BX, 0
+JMP end
+ok: MOV BX, 99
+end: HALT

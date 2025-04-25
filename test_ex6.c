@@ -1,39 +1,62 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include "projet.h"  
+#include "projet.h" // Your full project is already here
 
+int main() {
+    const char *filename = "program.txt";
 
+    // 1. Create a sample assembly program
+    FILE *fp = fopen(filename, "w");
+    if (!fp) {
+        perror("Erreur lors de la création du fichier");
+        return 1;
+    }
 
-void setup_sample_program(Instruction **instructions) {
-    instructions[0] = create_instruction("MOV", "AX", "5");     // AX = 5
-    instructions[1] = create_instruction("MOV", "BX", "7");     // BX = 7
-    instructions[2] = create_instruction("ADD", "AX", "BX");    // AX = AX + BX → 12
-    instructions[3] = create_instruction("CMP", "AX", "12");    // Compare AX == 12 → ZF = 1
-    instructions[4] = create_instruction("JZ", "[6]", NULL);    // Si ZF == 1 → IP = 6
-    instructions[5] = create_instruction("MOV", "CX", "0");     // Sauté si ZF == 1
-    instructions[6] = create_instruction("MOV", "DX", "99");    // DX = 99
+    // 2. Write valid .DATA and .CODE
+    fprintf(fp,
+        ".DATA\n"
+        "a DW 5\n"
+        "b DB 10, 20\n"
+        ".CODE\n"
+        "MOV AX, a\n"
+        "ADD AX, b\n"
+        "CMP AX, 15\n"
+        "JZ ok\n"
+        "MOV BX, 0\n"
+        "JMP end\n"
+        "ok: MOV BX, 99\n"
+        "end: HALT\n"
+    );
+    fclose(fp);
 
-}
+    // 3. Parse the file
+    ParserResult *res = parse(filename);
+    if (!res) {
+        fprintf(stderr, "Erreur de parsing\n");
+        return 1;
+    }
 
-int main()
-{
-    // 1. Initialiser le CPU
-    CPU *cpu = cpu_init(1024);
+    // 4. Replace labels and variable names with memory addresses
+    int replaced = resolve_constants(res);
+    printf("Remplacements effectués : %d\n", replaced);
 
-    // 2. Créer les instructions en mémoire
-    int code_count = 7;
-    Instruction *code[7];
-    setup_sample_program(code);
+    // 5. Init CPU
+    CPU *cpu = cpu_init(64);
+    if (!cpu) {
+        fprintf(stderr, "Erreur d'initialisation du CPU\n");
+        free_parser_result(res);
+        return 1;
+    }
 
-    // 3. Allouer le segment de code
-    allocate_code_segment(cpu, code, code_count);
+    // 6. Load memory and instructions
+    allocate_variables(cpu, res->data_instructions, res->data_count);
+    allocate_code_segment(cpu, res->code_instructions, res->code_count);
 
-    // 4. Exécuter le programme en mode pas-à-pas
+    // 7. Run the program
     run_program(cpu);
 
-    // 5. Nettoyage
+    // 8. Clean up
     cpu_destroy(cpu);
-    
+    free_parser_result(res);
     return 0;
 }
