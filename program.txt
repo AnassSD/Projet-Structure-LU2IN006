@@ -1,6 +1,7 @@
 .DATA
 a DW 5
 b DB 10, 20
+
 .CODE
 MOV AX, a
 ADD AX, b

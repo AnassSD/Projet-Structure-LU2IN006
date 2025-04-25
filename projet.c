@@ -404,7 +404,7 @@ Instruction *parse_data_instruction(const char *line, HashMap *memory_locations)
 
 Instruction *parse_code_instruction(const char *line, HashMap *labels, int code_count)
 {
-      /* Fonction qui permet d’analyser et stocker une ligne de la section .CODE */
+    /* Fonction qui permet d’analyser et stocker une ligne de la section .CODE */
     if (!line || !labels)
         return NULL;
 
@@ -420,7 +420,8 @@ Instruction *parse_code_instruction(const char *line, HashMap *labels, int code_
         // Extract label
         sscanf(line, " %255[^:]:", label);
         int *addr = malloc(sizeof(int));
-        if (!addr) return NULL;
+        if (!addr)
+            return NULL;
         *addr = code_count;
         hashmap_insert(labels, strdup(label), addr);
 
@@ -515,25 +516,28 @@ ParserResult *parse(const char *filename)
         if (dansData)
         {
             Instruction *instr = parse_data_instruction(clean, resultat->memory_locations);
-            if (instr  && instr->mnemonic && strcmp(instr->mnemonic, "") != 0 )
+            if (instr && instr->mnemonic && strcmp(instr->mnemonic, "") != 0)
             {
                 resultat->data_count++;
                 resultat->data_instructions = realloc(resultat->data_instructions, resultat->data_count * sizeof(Instruction *));
                 resultat->data_instructions[resultat->data_count - 1] = instr;
-            }else {
+            }
+            else
+            {
                 free(instr); // Don’t store NULL or empty instructions
             }
-
         }
         else if (dansCode)
         {
             Instruction *instr = parse_code_instruction(clean, resultat->labels, resultat->code_count);
-            if (instr  && instr->mnemonic && strcmp(instr->mnemonic, "") != 0)
+            if (instr && instr->mnemonic && strcmp(instr->mnemonic, "") != 0)
             {
                 resultat->code_count++;
                 resultat->code_instructions = realloc(resultat->code_instructions, resultat->code_count * sizeof(Instruction *));
                 resultat->code_instructions[resultat->code_count - 1] = instr;
-            }else {
+            }
+            else
+            {
                 free(instr); // Don’t store NULL or empty instructions
             }
         }
@@ -583,23 +587,18 @@ void free_parser_result(ParserResult *result)
     /* Fonction permettant de supprimer un ´el´ement de type ParserResult. */
     if (result)
     {
-        // Libérer le tableau d'instructions
+        // Only free data_instructions (car code_instructions freed par CPU memory)
         for (int i = 0; i < result->data_count; i++)
             free_instruction(result->data_instructions[i]);
         free(result->data_instructions);
 
-        // Libérer le tableau d'instructions
-        for (int i = 0; i < result->code_count; i++)
-            free_instruction(result->code_instructions[i]);
-        free(result->code_instructions);
+        free(result->code_instructions); // Only free the array (not the contents)
 
         hashmap_destroy(result->labels);
         hashmap_destroy(result->memory_locations);
 
         free(result);
     }
-
-    // on a fait if avant pour eviter les problemes de free(NULL)
 }
 
 /* ===================================================== EXERCICE 4 ===================================================== */
@@ -1083,10 +1082,12 @@ int resolve_constants(ParserResult *result)
             nb_remplacement += search_and_replace(&code_instruct->operand2, result->memory_locations) + search_and_replace(&code_instruct->operand2, result->labels);
 
         // j'ai ajouté c'est pour le debugging
+        /*
         printf("Instruction après remplacement: %s %s %s\n",
                code_instruct->mnemonic,
                code_instruct->operand1 ? code_instruct->operand1 : "",
                code_instruct->operand2 ? code_instruct->operand2 : "");
+        */
     }
     return nb_remplacement;
 }
@@ -1094,7 +1095,6 @@ int resolve_constants(ParserResult *result)
 // Q 6.2
 
 // Q 6.3
-
 void allocate_code_segment(CPU *cpu, Instruction **code_instructions, int code_count)
 {
     /* Fonction qui alloue et initialise le segment de code (CS). */
@@ -1102,21 +1102,25 @@ void allocate_code_segment(CPU *cpu, Instruction **code_instructions, int code_c
     if (!cpu || !cpu->memory_handler || !code_instructions || code_count <= 0)
         return;
 
-    // creation de segment CS
-    if (!create_segment(cpu->memory_handler, "CS", 0, code_count))
-        return;
+    // touver a safe start address pour CS (fix de probleme trouver en debugging )
+    int start_CS = 0;
+    Segment *ds = hashmap_get(cpu->memory_handler->allocated, "DS");
 
+    if (ds)
+    {
+        start_CS = ds->start + ds->size;
+    }
+    // creation de segment CS
+    if (!create_segment(cpu->memory_handler, "CS", start_CS, code_count))
+    {
+        printf("Erreur création segment CS\n");
+        return;
+    }
     // stock les instructions dans le segment
     for (int i = 0; i < code_count; i++)
     {
         store(cpu->memory_handler, "CS", i, code_instructions[i]);
-        // debugging print
-        printf("Instruction stockée [%d] : %s %s %s\n", i,
-               code_instructions[i]->mnemonic,
-               code_instructions[i]->operand1 ? code_instructions[i]->operand1 : "",
-               code_instructions[i]->operand2 ? code_instructions[i]->operand2 : "");
     }
-
     // init IP à 0
     int *ip = hashmap_get(cpu->context, "IP");
     if (ip)
@@ -1244,11 +1248,12 @@ Instruction *fetch_next_instruction(CPU *cpu)
     (*ip)++;
 
     // debugg print
-
-    printf("Instruction récupérée (IP=%d): %s %s %s\n", *ip - 1,
-           instr ? instr->mnemonic : "NULL",
-           instr && instr->operand1 ? instr->operand1 : "",
-           instr && instr->operand2 ? instr->operand2 : "");
+    /*
+        printf("Instruction récupérée (IP=%d): %s %s %s\n", *ip - 1,
+               instr ? instr->mnemonic : "NULL",
+               instr && instr->operand1 ? instr->operand1 : "",
+               instr && instr->operand2 ? instr->operand2 : "");
+        */
     if (!instr)
         printf("Instruction NULL à IP=%d\n", *ip);
 
@@ -1285,6 +1290,20 @@ int run_program(CPU *cpu)
     while (1)
     {
         Instruction *instr = fetch_next_instruction(cpu);
+        // debugging prints
+        /*
+        if (instr)
+        {
+            printf("Fetched instruction: %s %s %s\n",
+                   instr->mnemonic ? instr->mnemonic : "(null)",
+                   instr->operand1 ? instr->operand1 : "(null)",
+                   instr->operand2 ? instr->operand2 : "(null)");
+        }
+        else
+        {
+            printf("Fetched NULL instruction\n");
+        }*/
+
         if (!instr || !instr->mnemonic)
         {
             printf("Fin du programme ou instruction invalide.\n");
@@ -1317,6 +1336,8 @@ int run_program(CPU *cpu)
     printf("IP = %d\n", *(int *)hashmap_get(cpu->context, "IP"));
     printf("ZF = %d\n", *(int *)hashmap_get(cpu->context, "ZF"));
     printf("SF = %d\n", *(int *)hashmap_get(cpu->context, "SF"));
+
+    printf("\n =========================== FIN =========================== \n");
 
     return 1;
 }
