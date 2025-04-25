@@ -404,8 +404,7 @@ Instruction *parse_data_instruction(const char *line, HashMap *memory_locations)
 
 Instruction *parse_code_instruction(const char *line, HashMap *labels, int code_count)
 {
-    /* Fonction qui permet d’analyser et stocker une ligne de la section .CODE */
-
+      /* Fonction qui permet d’analyser et stocker une ligne de la section .CODE */
     if (!line || !labels)
         return NULL;
 
@@ -418,25 +417,30 @@ Instruction *parse_code_instruction(const char *line, HashMap *labels, int code_
 
     if (colon)
     {
-        // Ligne avec label
-        sscanf(line, "%255s : %255s %255[^,] , %255[^\n]", label, mnemonic, operand1, operand2);
-
-        // Insertion du label dans la table de hachage avec l'adresse code_count
+        // Extract label
+        sscanf(line, " %255[^:]:", label);
         int *addr = malloc(sizeof(int));
-        if (!addr)
-            return NULL;
+        if (!addr) return NULL;
         *addr = code_count;
         hashmap_insert(labels, strdup(label), addr);
 
-        // Création de l'instruction
-        instruction = create_instruction(mnemonic, operand1, operand2);
+        // After the label, check if there is a mnemonic
+        // Move pointer after label:
+        const char *after_label = colon + 1;
+        if (sscanf(after_label, " %255s %255[^,] , %255[^\n]", mnemonic, operand1, operand2) >= 1)
+        {
+            instruction = create_instruction(mnemonic, operand1, operand2);
+        }
+        else
+        {
+            // No instruction after label
+            instruction = create_instruction("", "", "");
+        }
     }
     else
     {
-        // Ligne sans label
+        // No label, normal instruction
         int n = sscanf(line, "%255s %255[^,] , %255[^\n]", mnemonic, operand1, operand2);
-
-        // On traite tous les cas
         if (n == 1)
             instruction = create_instruction(mnemonic, "", "");
         else if (n == 2)
@@ -511,21 +515,26 @@ ParserResult *parse(const char *filename)
         if (dansData)
         {
             Instruction *instr = parse_data_instruction(clean, resultat->memory_locations);
-            if (instr)
+            if (instr  && instr->mnemonic && strcmp(instr->mnemonic, "") != 0 )
             {
                 resultat->data_count++;
                 resultat->data_instructions = realloc(resultat->data_instructions, resultat->data_count * sizeof(Instruction *));
                 resultat->data_instructions[resultat->data_count - 1] = instr;
+            }else {
+                free(instr); // Don’t store NULL or empty instructions
             }
+
         }
         else if (dansCode)
         {
             Instruction *instr = parse_code_instruction(clean, resultat->labels, resultat->code_count);
-            if (instr)
+            if (instr  && instr->mnemonic && strcmp(instr->mnemonic, "") != 0)
             {
                 resultat->code_count++;
                 resultat->code_instructions = realloc(resultat->code_instructions, resultat->code_count * sizeof(Instruction *));
                 resultat->code_instructions[resultat->code_count - 1] = instr;
+            }else {
+                free(instr); // Don’t store NULL or empty instructions
             }
         }
     }
@@ -1008,7 +1017,7 @@ int search_and_replace(char **str, HashMap *values)
         if (values->table[i].key != NULL && values->table[i].key != (void *)-1)
         {
             char *key = values->table[i].key;
-            int value = (int)(long)values->table[i].value;
+            int value = *(int *)(values->table[i].value);
 
             // Find potential substring match
             char *substr = strstr(input, key);
