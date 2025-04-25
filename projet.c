@@ -580,6 +580,7 @@ void free_instruction(Instruction *instruction)
         free(instruction->mnemonic);
         free(instruction->operand1);
         free(instruction->operand2);
+        free(instruction);
     }
 }
 void free_parser_result(ParserResult *result)
